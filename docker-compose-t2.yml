@@ -596,6 +596,23 @@ services:
       - "traefik.http.routers.grafana-rtr.service=grafana-svc"
       - "traefik.http.services.grafana-svc.loadbalancer.server.port=3000"
 
+  ############################# VPN
+  # nordvpn - allows to use vpn only on spefic containers
+  vpn:
+    image: bubuntux/nordvpn
+    cap_add:
+      - NET_ADMIN               # Required
+      - SYS_MODULE              # Required for TECHNOLOGY=NordLynx
+    sysctls:
+      - net.ipv4.conf.all.rp_filter=2
+    devices:
+      - /dev/net/tun            # Required
+    environment:                # Review https://github.com/bubuntux/nordvpn#environment-variables
+      USER: $NORDVPN_USERNAME   # Required
+      PASS: $NORDVPN_PASSWORD   # Required
+      CONNECT: ch
+      TECHNOLOGY: NordLynx      # OpenVPN or NordLynx
+
   ############################# DOWNLOADERS
 
   # jDownloader - Download management
@@ -611,7 +628,10 @@ services:
     #   - "$JDOWNLOADER_PORT:5800"
     volumes:
       - $USERDIR/Downloads/completed:/output
-      - $DOCKERDIR/jdownloader:/config
+      - $USERDIR/docker/jdownloader:/config
+    network_mode: service:vpn
+    depends_on:
+      - vpn
     environment:
       USER_ID: $PUID
       GROUP_ID: $PGID
@@ -660,11 +680,12 @@ services:
       - $DOCKERDIR/transmission-vpn/config:/config
       - $USERDIR/Downloads:/downloads
     environment:
-      OPENVPN_PROVIDER: IPVANISH
-      OPENVPN_USERNAME: $IPVANISH_USERNAME
-      OPENVPN_PASSWORD: $IPVANISH_PASSWORD
-      OPENVPN_CONFIG: "ipvanish-CH-Zurich-zrh-c07"
-      OPENVPN_OPTS: --inactive 3600 --ping 10 --ping-exit 60
+      OPENVPN_PROVIDER: NORDVPN
+      OPENVPN_USERNAME: $NORDVPN_USERNAME
+      OPENVPN_PASSWORD: $NORDVPN_PASSWORD
+      NORDVPN_COUNTRY: "CH"
+#      OPENVPN_CONFIG: "ipvanish-CH-Zurich-zrh-c07"
+#      OPENVPN_OPTS: --inactive 3600 --ping 10 --ping-exit 60
       LOCAL_NETWORK: "$LOCAL_NETWORK"
       PUID: $PUID
       PGID: $PGID
@@ -717,6 +738,9 @@ services:
       - $DOCKERDIR/sabnzbd:/config
       - $USERDIR/Downloads:/downloads
     #   - $USERDIR/Downloads/incomplete:/incomplete-downloads
+    network_mode: service:vpn
+    depends_on:
+      - vpn
     environment:
       PUID: $PUID
       PGID: $PGID
@@ -751,6 +775,9 @@ services:
     # network_mode: container:transmission-vpn
     networks:
       - t2_proxy
+    network_mode: service:vpn
+    depends_on:
+      - vpn
     security_opt:
       - no-new-privileges:true
     ports:
@@ -781,6 +808,9 @@ services:
     restart: unless-stopped
     networks:
       - t2_proxy
+    network_mode: service:vpn
+    depends_on:
+      - vpn
     security_opt:
       - no-new-privileges:true
     # ports:
@@ -820,7 +850,7 @@ services:
     volumes:
       - $DOCKERDIR/lidarr:/config
       - $USERDIR/Downloads:/downloads
-      - /media/ds918/media/music:/music
+      - $MUSIC_DIR:/music
       - "/etc/localtime:/etc/localtime:ro"
     environment:
       PUID: $PUID
@@ -860,8 +890,8 @@ services:
     volumes:
       - $DOCKERDIR/radarr:/config
       - $USERDIR/Downloads:/downloads
-      - /media:/nas
-      # - $DOCKERDIR/shared/mp4_automator:/config_mp4_automator
+      - $MOVIE_DIR:/movies
+      # - $USERDIR/docker/shared/mp4_automator:/config_mp4_automator
       - "/etc/localtime:/etc/localtime:ro"
     environment:
       PUID: $PUID
@@ -901,7 +931,7 @@ services:
     volumes:
       - $DOCKERDIR/sonarr:/config
       - $USERDIR/Downloads:/downloads
-      - /media:/nas
+      - $SERIES_EN_DIR:/series
       - "/etc/localtime:/etc/localtime:ro"
     #   - "$DOCKERDIR/shared/mp4_automator:/config_mp4_automator:rw"
     environment:
@@ -940,8 +970,7 @@ services:
     volumes:
       - $DOCKERDIR/lazylibrarian:/config
       - $USERDIR/Downloads:/downloads
-      # - /media:/nas
-      - $DOCKERDIR/calibre/books:/books:rw
+      - $BOOK_DIR:/books
       - "/etc/localtime:/etc/localtime:ro"
     environment:
       PUID: $PUID
@@ -973,10 +1002,8 @@ services:
     # ports:
     #  - "$CALIBRE_WEB_PORT:8083"
     volumes:
-      - $DOCKERDIR/calibre-web:/config
-      # - /media/ds918/media/books:/books
-      # - add path to calibre books folder
-      - $DOCKERDIR/calibre/books:/books:rw
+      - $USERDIR/docker/calibre_web:/config
+      - $BOOK_DIR:/books
     environment:
       PUID: $PUID
       PGID: $PGID
@@ -1007,9 +1034,9 @@ services:
     #  - "$CALIBRE_PORT:8080" # Desktop GUI
     #  - "$CALIBRE_PORT:8081" # Webserver GUI
     volumes:
-      - $DOCKERDIR/calibre:/config:rw
-      #      - /media/ds918/media/books:/config/Calibre Library:rw
       - $USERDIR/Downloads:/downloads:rw
+      - $USERDIR/docker/calibre:/config
+      - $BOOK_DIR:/books
     environment:
       - PUID=$PUID
       - PGID=$PGID
@@ -1041,11 +1068,11 @@ services:
     # ports:
     #   - "$AIRSONIC_PORT:4040"
     volumes:
-      - /media:/nas:ro
-      - $DOCKERDIR/airsonic/podcasts:/podcasts
-      - $DOCKERDIR/airsonic/playlists:/playlists
-      - $DOCKERDIR/airsonic/config:/config
-      # - $DOCKERDIR/airsonic/config:/app/airsonic/config #Used to change log level for debugging
+      - $MUSIC_DIR:/music:ro
+      - $USERDIR/docker/airsonic/podcasts:/podcasts
+      - $USERDIR/docker/airsonic/playlists:/playlists
+      - $USERDIR/docker/airsonic/config:/config
+      # - $USERDIR/docker/airsonic/config:/app/airsonic/config #Used to change log level for debugging
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
     environment:
@@ -1088,7 +1115,7 @@ services:
     volumes:
       - $DOCKERDIR/plexms:/config
       - $USERDIR/Downloads:/Downloads
-      - /media:/nas
+      - $MEDIA_DIR:/media
       - /dev/shm:/transcode # Offload transcoding to RAM if you have enough RAM
     #   - $USERDIR/Downloads/plex_tmp:/transcode
     environment:
@@ -1129,7 +1156,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - $DOCKERDIR/embyms:/config
       - /dev/shm:/transcode
-      - /media:/nas
+      - $MEDIA_DIR:/media
       - $USERDIR/Downloads:/downloads
     environment:
       TZ: $TZ
@@ -1169,7 +1196,7 @@ services:
     volumes:
       - $DOCKERDIR/jellyfin:/config
       - /dev/shm:/ram_transcode
-      - /media:/nas
+      - $MEDIA_DIR:/media
     #   - /media:/nas:ro # Run in ro mode while upgrading JF
     labels:
       - "traefik.enable=true"
@@ -1266,9 +1293,9 @@ services:
     # ports:
     #  - "$PHOTOSHOW_PORT:80"
     volumes:
-      - $DOCKERDIR/photoshow/config:/config
-      - $DOCKERDIR/photoshow/thumbs:/Thumbs
-      - /media/ds918/media/photos:/Pictures:ro
+      - $USERDIR/docker/photoshow/config:/config
+      - $USERDIR/docker/photoshow/thumbs:/Thumbs
+      - $PHOTO_DIR:/Pictures:ro
     environment:
       PUID: $PUID
       PGID: $PGID
@@ -1298,8 +1325,8 @@ services:
     # ports:
     #  - "$BAZARR_PORT:6767"
     volumes:
-      - $DOCKERDIR/bazarr:/config
-      - /media:/nas
+      - $USERDIR/docker/bazarr:/config
+      - $MEDIA_DIR:/media
     environment:
       PUID: $PUID
       PGID: $PGID
@@ -1328,8 +1355,8 @@ services:
     #   - "$PICARD_PORT:5800"
     volumes:
       - $USERDIR/Downloads/wip_media:/wip_media:rw
-      - $DOCKERDIR/picard:/config:rw
-      - /media/ds918/media/music:/music:rw
+      - $USERDIR/docker/picard:/config:rw
+      - $MUSIC_DIR:/music:rw
       - /dev/shm:/dev/shm
     environment:
       USER_ID: $PUID
@@ -1473,8 +1500,8 @@ services:
     volumes:
       # A *.psm license file is required in /config
       # https://github.com/jlesage/docker-filebot#installing-a-license
-      - $DOCKERDIR/filebot:/config
-      - /media:/nas
+      - $USERDIR/docker/filebot:/config
+      - $MEDIA_DIR:/media
       - $USERDIR/Downloads:/downloads
     environment:
       USER_ID: $PUID
@@ -1637,8 +1664,8 @@ services:
     #   - "$QDIRSTAT_PORT:5800"
     volumes:
       - $USERDIR:/storage:ro
-      - $DOCKERDIR/qdirstat/config:/config:rw
-      - /media:/nas
+      - $USERDIR/docker/qdirstat/config:/config:rw
+      - $MEDIA_DIR:/media
     environment:
       USER_ID: $PUID
       GROUP_ID: $PGID
